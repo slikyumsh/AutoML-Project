@@ -3,5 +3,7 @@ datasets/
 models/
 results/
 
+src/__pycache__
+
 # env
 .venv
