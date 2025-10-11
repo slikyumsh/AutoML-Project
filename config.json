@@ -1,0 +1,13 @@
+{
+    "dataset_path": "datasets/Titanic-Dataset.csv",
+    "target_column": "Survived",
+    "task": "binary",
+    "test_size": 0.2,
+    "random_state": 42,
+    "automl_timeout": 600,
+    "cpu_limit": 4,
+    "use_algos": ["lgb", "linear_l2"],
+    "output_model_path": "models/model.pkl",
+    "metrics_path": "results/metrics.txt",
+    "metrics": ["auc", "accuracy", "f1"]
+}

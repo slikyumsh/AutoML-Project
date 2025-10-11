@@ -1,0 +1,7 @@
+# dir
+datasets/
+models/
+results/
+
+# env
+.venv
