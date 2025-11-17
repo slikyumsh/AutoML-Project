@@ -1,0 +1,1 @@
+python run_imba.py --input downloaded_datasets/852_analcatdata_gsssexsurvey.csv --target binaryClass --strategy bayes --budget 10 --out automl_outputs

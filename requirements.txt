@@ -1,1 +1,22 @@
-lightautoml[all]==0.4.0
+#lightautoml[all]==0.4.0
+# Core
+numpy
+pandas
+scipy
+scikit-learn
+imbalanced-learn
+category-encoders
+hyperopt
+shap
+joblib
+mlflow
+
+# Optional tree boosters
+xgboost
+lightgbm
+
+# Для скрипта подбора датасетов
+openml
+
+# Для рендера decision_graph.dot в PNG/SVG (optional; нужен также системный graphviz)
+graphviz
