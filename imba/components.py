@@ -181,6 +181,101 @@ class DFImputeThenTargetAndScale(BaseEstimator, TransformerMixin):
         return X_sc
 
 
+from sklearn.decomposition import PCA
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from umap import UMAP
+
+class PCATransformer(BaseEstimator, TransformerMixin):
+    """PCA трансформер"""
+    def __init__(self, n_components=None, **params):
+        self.n_components = n_components
+        self.params = params
+        self.pca_ = None
+        self.feature_names_ = None
+        
+    def fit(self, X, y=None):
+        params = {"random_state": 42}
+        params.update(self.params)
+        if self.n_components:
+            params["n_components"] = self.n_components
+            
+        self.pca_ = PCA(**params)
+        self.pca_.fit(X)
+        
+        n_components = self.pca_.n_components_
+        self.feature_names_ = [f"pca_{i}" for i in range(n_components)]
+        
+        return self
+    
+    def transform(self, X):
+        if self.pca_ is None:
+            raise ValueError("PCA not fitted")
+        return self.pca_.transform(X)
+
+class LDATransformer(BaseEstimator, TransformerMixin):
+    """LDA трансформер (требует метки для обучения)"""
+    def __init__(self, n_components=None, **params):
+        self.n_components = n_components
+        self.params = params
+        self.lda_ = None
+        self.feature_names_ = None
+        
+    def fit(self, X, y):
+        params = {}
+        params.update(self.params)
+        if self.n_components:
+            params["n_components"] = self.n_components
+            
+        self.lda_ = LinearDiscriminantAnalysis(**params)
+        self.lda_.fit(X, y)
+        
+        n_components = self.lda_.n_components_
+        self.feature_names_ = [f"lda_{i}" for i in range(n_components)]
+        
+        return self
+    
+    def transform(self, X):
+        if self.lda_ is None:
+            raise ValueError("LDA not fitted")
+        return self.lda_.transform(X)
+
+class UMAPTransformer(BaseEstimator, TransformerMixin):
+    """UMAP трансформер"""
+    def __init__(self, n_components=2, **params):
+        self.n_components = n_components
+        self.params = params
+        self.umap_ = None
+        self.feature_names_ = None
+        
+    def fit(self, X, y=None):
+            
+        params = {"random_state": 42, "n_jobs": -1}
+        params.update(self.params)
+        params["n_components"] = self.n_components
+        
+        self.umap_ = UMAP(**params)
+        self.umap_.fit(X)
+        
+        self.feature_names_ = [f"umap_{i}" for i in range(self.n_components)]
+        
+        return self
+    
+    def transform(self, X):
+        if self.umap_ is None:
+            raise ValueError("UMAP not fitted")
+        return self.umap_.transform(X)
+    
+
+class IdentityTransformer(BaseEstimator, TransformerMixin):
+    """Трансформер который просто возвращает данные как есть"""
+    def fit(self, X, y=None):
+        return self
+        
+    def transform(self, X):
+        return X
+        
+    def fit_transform(self, X, y=None):
+        return X
 # ---------------------------
 # Preprocessor factory
 # ---------------------------
@@ -298,14 +393,18 @@ try:
     import lightgbm as lgb
 except Exception:
     lgb = None
+try:
+    import catboost as cb
+except Exception:
+    cb = None
 
 
 @dataclass
 class ModelConfig:
-    name: str  # 'logreg' | 'rf' | 'gb' | 'linsvc' | 'xgb' | 'lgbm'
+    name: str  # 'logreg' | 'rf' | 'gb' | 'linsvc' | 'xgb' | 'lgbm' | 'catboost'
     params: Dict[str, Any]
     use_class_weight: bool = True
-    pos_weight: Optional[float] = None  # for xgb/lgbm
+    pos_weight: Optional[float] = None  # for xgb/lgbm/catboost
 
 
 class ModelFactory:
@@ -358,8 +457,58 @@ class ModelFactory:
             p.setdefault("bagging_freq", 0)
             p.setdefault("num_leaves", p.get("num_leaves", 31))
             return lgb.LGBMClassifier(**p)
+        
+        if n == "catboost":
+            if cb is None:
+                raise ImportError("catboost not installed")
+            
+            p.setdefault("verbose", False)
+            p.setdefault("random_seed", 42)
+            p.setdefault("thread_count", -1)
+            
+            if cfg.pos_weight is not None:
+                p.setdefault("scale_pos_weight", cfg.pos_weight)
+            
+            return cb.CatBoostClassifier(**p)
 
         raise ValueError(f"Unknown model: {n}")
+
+# ---------------------------
+# Dim factory
+# ---------------------------
+
+@dataclass
+class DimensionalityReductionConfig:
+    method: str  # 'none' | 'pca' | 'lda' | 'umap' |
+    n_components: Optional[int] = None
+    params: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        if self.params is None:
+            self.params = {}
+
+
+
+
+class DimReductionFactory:
+    @staticmethod
+    def build(cfg: DimensionalityReductionConfig):
+            
+        if cfg.method == "pca":
+            return PCATransformer(n_components=cfg.n_components, **cfg.params)
+            
+        elif cfg.method == "lda":
+            return LDATransformer(n_components=cfg.n_components, **cfg.params)
+            
+        elif cfg.method == "umap":
+            return UMAPTransformer(n_components=cfg.n_components, **cfg.params)
+            
+        else:
+            return None # Либо можно IdentityTransformer()
+            
+
+
+
 
 
 # ---------------------------
@@ -370,21 +519,46 @@ class PipelineConfig:
     preprocess: PreprocessConfig
     imbalance: ImbalanceConfig
     model: ModelConfig
+    dimensionality_reduction: DimensionalityReductionConfig  
 
 
+# class FullPipelineFactory:
+#     @staticmethod
+#     def build(cfg: PipelineConfig):
+#         pre = PreprocessorFactory.build(cfg.preprocess)
+#         sampler = SamplerFactory.build(cfg.imbalance)
+#         est = ModelFactory.build(cfg.model)
+#         if sampler is not None and ImbPipeline is not Pipeline:
+#             return ImbPipeline([
+#                 ("pre", pre),
+#                 ("sampler", sampler),
+#                 ("clf", est),
+#             ])
+#         return Pipeline([
+#             ("pre", pre),
+#             ("clf", est),
+#         ])
+
+# Проверка каждого этапа пайплайна отдельно
 class FullPipelineFactory:
     @staticmethod
     def build(cfg: PipelineConfig):
         pre = PreprocessorFactory.build(cfg.preprocess)
+        dim_reducer = DimReductionFactory.build(cfg.dimensionality_reduction)
         sampler = SamplerFactory.build(cfg.imbalance)
         est = ModelFactory.build(cfg.model)
+        
+        steps = [("pre", pre)]
+        
+        # Dim reduction ДО сэмплинга, но ПОСЛЕ препроцессинга
+        if dim_reducer is not None:
+            steps.append(("dim_reduce", dim_reducer))
+            
         if sampler is not None and ImbPipeline is not Pipeline:
-            return ImbPipeline([
-                ("pre", pre),
-                ("sampler", sampler),
-                ("clf", est),
-            ])
-        return Pipeline([
-            ("pre", pre),
-            ("clf", est),
-        ])
+            steps.append(("sampler", sampler))
+            
+        steps.append(("clf", est))
+        
+        if sampler is not None and ImbPipeline is not Pipeline:
+            return ImbPipeline(steps)
+        return Pipeline(steps)
