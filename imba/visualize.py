@@ -8,35 +8,31 @@ def _graph_spec(best_trial: Dict):
         ("enc", f"encoding: {best_trial.get('encoding')}"),
         ("sc", f"scaler: {best_trial.get('scaler')}"),
         ("imp", f"num_impute: {best_trial.get('num_impute')}"),
+        ("skw", f"skew_auto: {best_trial.get('skew_auto')}"),
         ("imb", f"imbalance: {best_trial.get('imbalance_mode')}"),
+        ("dr", f"DR: {best_trial.get('dr_kind')}"),
         ("mdl", f"model: {best_trial.get('model_name')}"),
         ("score", f"CV {metric}: {score:.4f}" if isinstance(score, (int, float)) else f"CV {metric}: {score}"),
     ]
-    edges = [("start", "enc"), ("enc", "sc"), ("sc", "imp"), ("imp", "imb"), ("imb", "mdl"), ("mdl", "score")]
+    edges = [("start","enc"),("enc","sc"),("sc","imp"),("imp","skw"),("skw","imb"),("imb","dr"),("dr","mdl"),("mdl","score")]
     return nodes, edges
 
 def save_decision_graph(best_trial: Dict, path: str = "decision_graph.dot") -> str:
-    """Старый метод: сохраняем DOT (Graphviz)."""
     nodes, _ = _graph_spec(best_trial)
     parts = [
         "digraph AutoML {",
         "  rankdir=LR; node [shape=box, style=rounded];",
         "  start [label=\"start\"];",
     ]
-    # остальные ноды
-    labels = {k: v for k, v in nodes if k != "start"}
-    for key, label in labels.items():
+    for key, label in nodes:
+        if key == "start": continue
         parts.append(f'  {key} [label="{label}"];')
-    parts += [
-        "  start -> enc -> sc -> imp -> imb -> mdl -> score;",
-        "}",
-    ]
+    parts += ["  start -> enc -> sc -> imp -> skw -> imb -> dr -> mdl -> score;", "}"]
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(parts))
     return path
 
 def save_decision_graph_mermaid(best_trial: Dict, path: str = "decision_graph.mmd") -> str:
-    """Mermaid flowchart (рендерится в VSCode/GitHub/Obsidian)."""
     nodes, edges = _graph_spec(best_trial)
     id2label = {i: lbl for i, lbl in nodes}
     lines = ["flowchart LR"]
@@ -53,15 +49,12 @@ def save_decision_graph_networkx(best_trial: Dict, path: str = "decision_graph_n
     G = nx.DiGraph()
     G.add_nodes_from([n for n, _ in nodes])
     G.add_edges_from(edges)
-
-    order = ["start", "enc", "sc", "imp", "imb", "mdl", "score"]
+    order = ["start","enc","sc","imp","skw","imb","dr","mdl","score"]
     pos = {name: (i, 0) for i, name in enumerate(order)}
     labels = {n: lbl for n, lbl in nodes}
-
-    # главное изменение — используем constrained_layout и убираем tight_layout()
-    fig = plt.figure(figsize=(11, 2.4), constrained_layout=True)
+    fig = plt.figure(figsize=(13, 2.6), constrained_layout=True)
     ax = fig.add_subplot(111)
-    nx.draw(G, pos, with_labels=False, node_shape="s", node_size=8200, arrows=True, width=1.0, ax=ax)
+    nx.draw(G, pos, with_labels=False, node_shape="s", node_size=9000, arrows=True, width=1.0, ax=ax)
     for n, (x, y) in pos.items():
         ax.text(x, y, labels[n], ha="center", va="center", fontsize=9)
     ax.axis("off")
