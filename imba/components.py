@@ -77,13 +77,120 @@ class ColumnMinImputer(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         X = pd.DataFrame(X).copy()
-        X = X.fillna(self.mins_)
-        # сохранить порядок столбцов
-        return X[self.columns_].values
+        if self.num_cols_ and self.num_imputer_ is not None:
+            X[self.num_cols_] = self.num_imputer_.transform(X[self.num_cols_])
+        if self.cat_cols_:
+            X[self.cat_cols_] = self.cat_imputer_.transform(X[self.cat_cols_])
+        return X
 
 
-def _build_numeric_imputer(strategy: str):
-    if strategy == "median":
+class TargetEncoderWrapper(BaseEstimator, TransformerMixin):
+    """Target encoding for categorical columns (requires category_encoders)."""
+    def __init__(self, smoothing: float = 1.0):
+        self.smoothing = smoothing
+        self.cat_cols_: List[str] = []
+        self.encoder_ = None
+
+    def fit(self, X, y):
+        if ce is None:
+            raise ImportError("category_encoders is required for target encoding")
+        X = pd.DataFrame(X)
+        self.cat_cols_ = list(X.select_dtypes(include=["object", "category", "bool"]).columns)
+        if self.cat_cols_:
+            self.encoder_ = ce.TargetEncoder(cols=self.cat_cols_, smoothing=self.smoothing)
+            self.encoder_.fit(X[self.cat_cols_], y)
+        return self
+
+    def transform(self, X):
+        X = pd.DataFrame(X).copy()
+        if self.cat_cols_ and self.encoder_ is not None:
+            X[self.cat_cols_] = self.encoder_.transform(X[self.cat_cols_])
+        return X
+
+
+class DataFrameScaler(BaseEstimator, TransformerMixin):
+    """Apply selected scaler to numeric columns in a DataFrame, preserve columns."""
+    def __init__(self, kind: str = "none"):
+        self.kind = kind
+        self.num_cols_: List[str] = []
+        self.scaler_: Optional[TransformerMixin] = None
+
+    @staticmethod
+    def _make(kind: str):
+        if kind == "none" or kind is None:
+            return None
+        if kind == "standard":
+            return StandardScaler()
+        if kind == "robust":
+            return RobustScaler()
+        if kind == "minmax":
+            return MinMaxScaler()
+        if kind == "power":
+            return PowerTransformer(method="yeo-johnson", standardize=True)
+        raise ValueError(f"Unknown scaler: {kind}")
+
+    def fit(self, X, y=None):
+        X = pd.DataFrame(X)
+        self.num_cols_ = list(X.select_dtypes(include=[np.number]).columns)
+        self.scaler_ = self._make(self.kind)
+        if self.scaler_ is not None and self.num_cols_:
+            self.scaler_.fit(X[self.num_cols_])
+        return self
+
+    def transform(self, X):
+        X = pd.DataFrame(X).copy()
+        if self.scaler_ is not None and self.num_cols_:
+            X[self.num_cols_] = self.scaler_.transform(X[self.num_cols_])
+        return X
+
+
+class DFImputeThenTargetAndScale(BaseEstimator, TransformerMixin):
+    """Single transformer: DataFrameImputer -> TargetEncoderWrapper -> DataFrameScaler (no nested Pipelines)."""
+    def __init__(self, num_strategy: str = "median", smoothing: float = 1.0, scaler: str = "none"):
+        self.num_strategy = num_strategy
+        self.smoothing = smoothing
+        self.scaler = scaler
+        self._imp = DataFrameImputer(num_strategy=num_strategy, cat_strategy="most_frequent")
+        self._te = TargetEncoderWrapper(smoothing=smoothing)
+        self._sc = DataFrameScaler(kind=scaler)
+
+    def fit(self, X, y):
+        X_imp = self._imp.fit_transform(X, y)
+        self._te.fit(X_imp, y)
+        X_te = self._te.transform(X_imp)
+        self._sc.fit(X_te)
+        return self
+
+    def transform(self, X):
+        X_imp = self._imp.transform(X)
+        X_te = self._te.transform(X_imp)
+        X_sc = self._sc.transform(X_te)
+        return X_sc
+
+
+# ---------------------------
+# Preprocessor factory
+# ---------------------------
+@dataclass
+class PreprocessConfig:
+    encoding: str  # 'onehot' | 'ordinal' | 'target'
+    num_impute: str  # 'median' | 'mean' | 'min'
+    scaler: str = "none"  # 'none' | 'standard' | 'robust' | 'minmax' | 'power'
+
+
+def _make_onehot():
+    """Create OneHotEncoder that is compatible across sklearn versions."""
+    params = {"handle_unknown": "ignore"}
+    sig = signature(OneHotEncoder.__init__)
+    if "sparse_output" in sig.parameters:         # sklearn >= 1.2
+        params["sparse_output"] = False
+    else:                                         # sklearn <= 1.1
+        params["sparse"] = False
+    return OneHotEncoder(**params)
+
+
+def _make_num_imputer(kind: str):
+    if kind == "median":
         return SimpleImputer(strategy="median")
     if strategy == "mean":
         return SimpleImputer(strategy="mean")
@@ -159,50 +266,69 @@ class Preprocessor(BaseEstimator, TransformerMixin):
                 ("cat", (encoder if self.cfg.encoding != "target" else encoder), self.cat_cols_)
             ],
             remainder="drop",
-            sparse_threshold=0.0,
-            n_jobs=None,
         )
-
-        # важно: если target encoding — он учит по y
-        self.ct_.fit(X, y)
-        return self
-
-    def transform(self, X):
-        X = pd.DataFrame(X).copy()
-        return self.ct_.transform(X)
+        return pre  # важно: единый трансформер, без внешнего Pipeline
 
 
-# --- DR (только PCA) ----------------------------------------------------------
+# ---------------------------
+# Sampler factory
+# ---------------------------
+@dataclass
+class ImbalanceConfig:
+    mode: str  # 'none' | 'over' | 'under' | 'weight'
 
-def _build_dr(dr_cfg: DRConfig):
-    if dr_cfg.kind == "pca":
-        return PCA(n_components=dr_cfg.ratio, svd_solver="full", random_state=42)
-    return None
+
+class SamplerFactory:
+    @staticmethod
+    def build(cfg: ImbalanceConfig):
+        if cfg.mode == "over":
+            if RandomOverSampler is None:
+                raise ImportError("imblearn is required for oversampling")
+            return RandomOverSampler()
+        if cfg.mode == "under":
+            if RandomUnderSampler is None:
+                raise ImportError("imblearn is required for undersampling")
+            return RandomUnderSampler()
+        return None  # 'none' or 'weight' handled inside models
 
 
-# --- Model factory ------------------------------------------------------------
+# ---------------------------
+# Model factory
+# ---------------------------
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.svm import LinearSVC
 
-def _build_model(mcfg: ModelConfig, n_classes: int = 2):
-    name = mcfg.name
-    params = dict(mcfg.params or {})
-    use_w = bool(mcfg.use_class_weight)
-    pos_w = float(mcfg.pos_weight)
+try:
+    import xgboost as xgb
+except Exception:
+    xgb = None
+try:
+    import lightgbm as lgb
+except Exception:
+    lgb = None
 
-    def _maybe_add_class_weight(p: Dict[str, Any]):
-        if not use_w:
-            return p
-        # sklearn модели
-        if name in ("logreg", "rf", "gb"):
-            p = dict(p)
-            p["class_weight"] = "balanced"
-        return p
 
-    if name == "logreg":
-        from sklearn.linear_model import LogisticRegression
-        p = {"solver": "lbfgs", "max_iter": 5000}
-        p.update(params)
-        p = _maybe_add_class_weight(p)
-        return LogisticRegression(**p)
+@dataclass
+class ModelConfig:
+    name: str  # 'logreg' | 'rf' | 'gb' | 'linsvc' | 'xgb' | 'lgbm'
+    params: Dict[str, Any]
+    use_class_weight: bool = True
+    pos_weight: Optional[float] = None  # for xgb/lgbm
+
+
+class ModelFactory:
+    @staticmethod
+    def build(cfg: ModelConfig):
+        n = cfg.name
+        p = dict(cfg.params)
+
+        if n == "logreg":
+            if cfg.use_class_weight:
+                p.setdefault("class_weight", "balanced")
+            p.setdefault("solver", "lbfgs")
+            p.setdefault("max_iter", 5000)
+            return LogisticRegression(**p)
 
     if name == "rf":
         from sklearn.ensemble import RandomForestClassifier
@@ -218,84 +344,99 @@ def _build_model(mcfg: ModelConfig, n_classes: int = 2):
         # у GBC нет class_weight
         return GradientBoostingClassifier(**p)
 
-    if name == "xgb":
-        from xgboost import XGBClassifier
-        p = {"n_estimators": 200, "learning_rate": 0.1, "max_depth": 3, "n_jobs": -1, "eval_metric": "logloss", "random_state": 42}
-        p.update(params)
-        if use_w:
-            p["scale_pos_weight"] = pos_w
-        return XGBClassifier(**p)
+        if n == "linsvc":
+            if cfg.use_class_weight:
+                p.setdefault("class_weight", "balanced")
+            return LinearSVC(**p)
 
-    if name == "lgbm":
-        from lightgbm import LGBMClassifier
-        p = {"n_estimators": 200, "learning_rate": 0.1, "num_leaves": 31, "random_state": 42, "verbose": -1}
-        p.update(params)
-        if use_w:
-            p["class_weight"] = {0: 1.0, 1: pos_w}
-        return LGBMClassifier(**p)
+        if n == "xgb":
+            if xgb is None:
+                raise ImportError("xgboost not installed")
+            if cfg.pos_weight is not None:
+                p.setdefault("scale_pos_weight", cfg.pos_weight)
+            p.setdefault("eval_metric", "logloss")
+            p.setdefault("n_jobs", -1)
+            return xgb.XGBClassifier(**p)
 
-    if name == "cat":
-        from catboost import CatBoostClassifier
-        p = {"depth": 6, "learning_rate": 0.1, "iterations": 300, "verbose": 0, "random_state": 42}
-        p.update(params)
-        if use_w:
-            # веса классов в виде списка [w0, w1]
-            p["class_weights"] = [1.0, pos_w]
-        return CatBoostClassifier(**p)
+        if n == "lgbm":
+            if lgb is None:
+                raise ImportError("lightgbm not installed")
+            if cfg.pos_weight is not None:
+                p.setdefault("scale_pos_weight", cfg.pos_weight)
+            # тихие и мягкие дефолты под маленькие датасеты
+            p.setdefault("verbose", -1)
+            p.setdefault("min_child_samples", 5)
+            p.setdefault("min_data_in_leaf", 5)
+            p.setdefault("min_data_in_bin", 3)
+            p.setdefault("feature_fraction", 1.0)
+            p.setdefault("bagging_fraction", 1.0)
+            p.setdefault("bagging_freq", 0)
+            p.setdefault("num_leaves", p.get("num_leaves", 31))
+            return lgb.LGBMClassifier(**p)
 
-    if name in ("vote_soft", "vote_hard", "stack_lr"):
-        # базовые слабые модели (без перевеса классов внутри ансамбля — перевес делаем общим режимом)
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, VotingClassifier, StackingClassifier
-        base_lr = LogisticRegression(max_iter=5000, solver="lbfgs", random_state=42)
-        base_rf = RandomForestClassifier(n_estimators=300, n_jobs=-1, random_state=42)
-        base_gb = GradientBoostingClassifier(n_estimators=300, learning_rate=0.08, random_state=42)
+        raise ValueError(f"Unknown model: {n}")
 
-        if name.startswith("vote"):
-            voting = "soft" if name == "vote_soft" else "hard"
-            return VotingClassifier(
-                estimators=[("lr", base_lr), ("rf", base_rf), ("gb", base_gb)],
-                voting=voting,
-                n_jobs=None
-            )
+# ---------------------------
+# Dim factory
+# ---------------------------
+
+@dataclass
+class DimensionalityReductionConfig:
+    method: str  # 'none' | 'pca' | 'lda' | 'umap' |
+    n_components: Optional[int] = None
+    params: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        if self.params is None:
+            self.params = {}
+
+
+
+
+class DimReductionFactory:
+    @staticmethod
+    def build(cfg: DimensionalityReductionConfig):
+            
+        if cfg.method == "pca":
+            return PCATransformer(n_components=cfg.n_components, **cfg.params)
+            
+        elif cfg.method == "lda":
+            return LDATransformer(n_components=cfg.n_components, **cfg.params)
+            
+        elif cfg.method == "umap":
+            return UMAPTransformer(n_components=cfg.n_components, **cfg.params)
+            
         else:
-            final_lr = LogisticRegression(max_iter=5000, solver="lbfgs", random_state=42)
-            return StackingClassifier(
-                estimators=[("lr", base_lr), ("rf", base_rf), ("gb", base_gb)],
-                final_estimator=final_lr,
-                passthrough=False,
-                n_jobs=None
-            )
-
-    raise ValueError(f"Unknown model name: {name}")
+            return None # Либо можно IdentityTransformer()
+            
 
 
-# --- Full pipeline ------------------------------------------------------------
+
+
+
+# ---------------------------
+# End-to-end pipeline factory (preproc + sampler + model)
+# ---------------------------
+@dataclass
+class PipelineConfig:
+    preprocess: PreprocessConfig
+    imbalance: ImbalanceConfig
+    model: ModelConfig
+
 
 class FullPipelineFactory:
     @staticmethod
-    def build(cfg: PipelineConfig, n_features_hint: int = 0, n_classes: int = 2):
-        steps = []
-
-        # preprocess
-        pre = Preprocessor(cfg.preprocess)
-        steps.append(("pre", pre))
-
-        # dimensionality reduction (только PCA)
-        dr_est = _build_dr(cfg.dr)
-        if dr_est is not None:
-            steps.append(("dr", dr_est))
-
-        # imbalance
-        imb = cfg.imbalance.mode
-        if imb == "over":
-            steps.append(("imb", RandomOverSampler(random_state=42)))
-        elif imb == "under":
-            steps.append(("imb", RandomUnderSampler(random_state=42)))
-        # 'weight' и 'none' — ничего не вставляем, это на уровне модели
-
-        # model
-        model = _build_model(cfg.model, n_classes=n_classes)
-        steps.append(("model", model))
-
-        return ImbPipeline(steps, memory=None, verbose=False)
+    def build(cfg: PipelineConfig):
+        pre = PreprocessorFactory.build(cfg.preprocess)
+        sampler = SamplerFactory.build(cfg.imbalance)
+        est = ModelFactory.build(cfg.model)
+        if sampler is not None and ImbPipeline is not Pipeline:
+            return ImbPipeline([
+                ("pre", pre),
+                ("sampler", sampler),
+                ("clf", est),
+            ])
+        return Pipeline([
+            ("pre", pre),
+            ("clf", est),
+        ])

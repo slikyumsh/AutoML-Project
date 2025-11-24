@@ -1,4 +1,4 @@
-#lightautoml[all]==0.4.0
+lightautoml[all]==0.4.0
 # Core
 numpy
 pandas
@@ -10,10 +10,12 @@ hyperopt
 shap
 joblib
 mlflow
+umap
 
 # Optional tree boosters
 xgboost
 lightgbm
+catboot
 
 # Для скрипта подбора датасетов
 openml
