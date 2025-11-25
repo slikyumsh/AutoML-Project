@@ -2,9 +2,9 @@
 datasets/
 models/
 results/
-
+bucket_runs/
 src/__pycache__
-
+catboost_info/
 # env
 .venv
 /venv

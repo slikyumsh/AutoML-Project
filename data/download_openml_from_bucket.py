@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import re
 import time
@@ -11,7 +10,6 @@ def sanitize(name: str, maxlen: int = 80) -> str:
     return name[:maxlen].strip("._")
 
 def resolve_target(ds, fallback: str | None) -> str | None:
-    # 1) явный target из bucket; 2) ds.default_target_attribute; 3) qualities['class_attribute']
     if fallback and isinstance(fallback, str) and fallback.strip():
         return fallback
     if getattr(ds, "default_target_attribute", None):
@@ -32,14 +30,12 @@ def download_one(did: int, name: str | None, target_hint: str | None, outdir: st
         if not target_name:
             raise RuntimeError("target not found")
         X, y, _, _ = ds.get_data(dataset_format="dataframe", target=target_name)
-        # формируем имя файла
         base = f"{did}_{sanitize(name or ds.name)}"
         fpath = os.path.join(outdir, f"{base}.csv")
         if os.path.exists(fpath) and not overwrite:
             rec.update({"status": "exists", "path": fpath})
             return rec
         df = X.copy()
-        # добавим целевой столбец с корректным именем
         if y is not None:
             if getattr(y, "name", None) != target_name:
                 df[target_name] = pd.Series(y).values
@@ -66,7 +62,6 @@ def main():
     if "did" not in idx.columns:
         raise SystemExit("В CSV не найдена колонка 'did'")
 
-    # уберём дубли по did, чтобы не качать одно и то же
     idx = idx.drop_duplicates(subset=["did"]).reset_index(drop=True)
     if args.limit is not None:
         idx = idx.head(args.limit)

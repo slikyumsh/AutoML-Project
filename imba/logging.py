@@ -29,8 +29,7 @@ class RunLogger:
 
     def log_params(self, params: Dict[str, Any], step: Optional[int] = None):
         """
-        В MLflow параметры неизменяемы в пределах одного run.
-        Чтобы избежать конфликтов между трейлами, добавляем префикс 't{step}__' к ключам.
+        MLflow
         """
         if self._mlflow_ok:
             if step is None:
