@@ -1,0 +1,6 @@
+did,name,roc_auc,f1,top_features
+1068,pc1,0.872,0.4,No tree-based classifier found
+995,mfeat-zernike,0.999,0.937,No tree-based classifier found
+1487,ozone-level-8hr,0.94,0.5,No tree-based classifier found
+45562,seismic-bumps,0.729,0.271,No tree-based classifier found
+40983,wilt,0.997,0.875,No tree-based classifier found

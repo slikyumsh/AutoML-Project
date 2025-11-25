@@ -1,0 +1,6 @@
+did,name,roc_auc,f1,top_features
+44726,adult_seed_3_nrows_2000_nclasses_10_ncols_100_stratify_True,0.888,0.606,No tree-based classifier found
+1067,kc1,0.844,0.584,No tree-based classifier found
+46940,Marketing_Campaign,0.866,0.527,No tree-based classifier found
+728,analcatdata_supreme,1.0,0.987,No tree-based classifier found
+40701,churn,0.83,0.432,No tree-based classifier found

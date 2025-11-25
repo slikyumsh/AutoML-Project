@@ -1,0 +1,6 @@
+did,name,roc_auc,f1,top_features
+852,analcatdata_gsssexsurvey,0.48,0.235,No tree-based classifier found
+1488,parkinsons,0.962,0.889,No tree-based classifier found
+1063,kc2,0.728,0.488,No tree-based classifier found
+1464,blood-transfusion-service-center,0.787,0.592,No tree-based classifier found
+1014,analcatdata_dmft,0.416,0.333,No tree-based classifier found

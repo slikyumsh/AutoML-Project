@@ -1,0 +1,6 @@
+did,name,roc_auc,f1,top_features,error
+1001,sponge,1.0,1.0,No tree-based classifier found,
+1059,ar1,0.859,0.25,No tree-based classifier found
+1065,kc3,0.641,0.364,No tree-based classifier found
+40994,climate-model-simulation-crashes,0.897,0.625,No tree-based classifier found
+1065,kc3,,,,File: C:\Users\user\.openml\org\openml\www\datasets\1065\dataset_1065.pq

@@ -1,0 +1,6 @@
+did,name,roc_auc,f1,top_features
+1040,sylva_prior,0.999,0.946,No tree-based classifier found
+45558,Pulsar-Dataset-HTRU2,0.977,0.851,No tree-based classifier found
+977,letter,1.0,0.991,No tree-based classifier found
+4135,Amazon_employee_access,0.855,0.47,No tree-based classifier found
+46518,Give-Me-Some-Credit-Sampled-Preprocessed,0.857,0.363,No tree-based classifier found

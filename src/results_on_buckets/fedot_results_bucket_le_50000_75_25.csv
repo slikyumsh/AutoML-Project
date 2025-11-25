@@ -1,0 +1,5 @@
+did,name,roc_auc,f1,top_features
+1053,jm1,0.735,0.298,No tree-based classifier found
+46373,default-of-credit-card-clients,0.764,0.449,No tree-based classifier found
+1220,Click_prediction_small,0.706,0.093,No tree-based classifier found
+46526,Loan_Approval_Status_Classification,0.978,0.844,No tree-based classifier found
