@@ -2,7 +2,6 @@ from typing import Optional
 import numpy as np
 
 def _extract_parts(pipeline):
-    # вернуть (pre_dr_transformer, estimator)
     if hasattr(pipeline, "named_steps"):
         pre = []
         est = None
