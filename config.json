@@ -1,13 +1,21 @@
 {
-    "dataset_path": "datasets/Titanic-Dataset.csv",
-    "target_column": "Survived",
+    "dataset_path": "datasets/46526_Loan_Approval_Status_Classification.csv",
+    "target_column": "loan_status",
     "task": "binary",
+    "target_mapping": {
+        "loan_rejected": 0,
+        "loan_approved": 1
+    },
+    
+    "automl_timeout": 36000,
+    "cpu_limit": 3,
+    "use_algos": [
+        ["lgb", "lgb_tuned", "linear_l2", "cb", "cb_tuned"]
+    ],
+    
     "test_size": 0.2,
     "random_state": 42,
-    "automl_timeout": 600,
-    "cpu_limit": 4,
-    "use_algos": ["lgb", "linear_l2"],
-    "output_model_path": "models/model.pkl",
-    "metrics_path": "results/metrics.txt",
-    "metrics": ["auc", "accuracy", "f1"]
+    
+    "output_model_path": "models/46526_Loan_Approval_Status_Classification.pkl",
+    "metrics_path": "bucket_50000_75_25/46526_Loan_Approval_Status_Classification.txt"
 }

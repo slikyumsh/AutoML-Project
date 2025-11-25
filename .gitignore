@@ -1,9 +1,28 @@
 # dir
+# окружение
+.venv
+.venv_311
+
+# конфиг
+.vscode
+
+# сеты
+backets/
+**/*bucket*/
 datasets/
+
+# imba
+imba/
+
+#files
 models/
 results/
+report/
+src/notebooks/
+data/
 
-src/__pycache__
+**/*pycache*/
 
-# env
-.venv
+stats.py
+
+
